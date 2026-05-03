@@ -31,7 +31,7 @@ app.add_middleware(
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
-ALERT_PHONE_NUMBER = os.getenv("ALERT_PHONE_NUMBER") or "+918791752379"
+ALERT_PHONE_NUMBER = os.getenv("ALERT_PHONE_NUMBER")
 ALLOW_DRY_RUN = os.getenv("ALLOW_DRY_RUN", "true").lower() == "true"
 COOLDOWN_S = int(os.getenv("COOLDOWN_S", "60"))
 
