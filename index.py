@@ -3,12 +3,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from flask import Flask, jsonify, request
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-import uvicorn
 
 try:
     from twilio.rest import Client
@@ -20,13 +16,7 @@ load_dotenv(BASE_DIR / ".env")
 if not os.getenv("ALERT_PHONE_NUMBER"):
     load_dotenv(BASE_DIR / ".env.example", override=False)
 
-app = FastAPI(title="Smart Dipper Calling Backend")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = Flask(__name__)
 
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
@@ -36,12 +26,6 @@ ALLOW_DRY_RUN = os.getenv("ALLOW_DRY_RUN", "true").lower() == "true"
 COOLDOWN_S = int(os.getenv("COOLDOWN_S", "60"))
 
 recent_calls: dict[str, float] = {}
-
-
-class AlertRequest(BaseModel):
-    moisture: Optional[float] = None
-    to: Optional[str] = None
-    message: Optional[str] = None
 
 
 def escape_for_twiml(text: str) -> str:
@@ -54,59 +38,60 @@ def escape_for_twiml(text: str) -> str:
     )
 
 
-@app.get("/")
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+
+@app.route("/", methods=["GET", "OPTIONS"])
 def home():
-    return {"message": "API working 🚀"}
+    if request.method == "OPTIONS":
+        return ("", 204)
+    return jsonify(message="API working 🚀")
 
 
-@app.get("/health")
+@app.route("/health", methods=["GET", "OPTIONS"])
 def health():
-    return {"ok": True}
+    if request.method == "OPTIONS":
+        return ("", 204)
+    return jsonify(ok=True)
 
 
-@app.post("/api/alert-call")
-def alert_call(req: AlertRequest):
-    to = req.to or ALERT_PHONE_NUMBER
-    message = req.message or "Alert. Baby diaper is full. Please change it immediately."
+@app.route("/api/alert-call", methods=["POST", "OPTIONS"])
+def alert_call():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    data = request.get_json(silent=True) or {}
+    moisture = data.get("moisture")
+    to = data.get("to") or ALERT_PHONE_NUMBER
+    message = data.get("message") or "Alert. Baby diaper is full. Please change it immediately."
 
     if not to:
-        raise HTTPException(
-            status_code=400,
-            detail="No target phone number provided or configured.",
-        )
+        return jsonify(error="No target phone number provided or configured."), 400
 
-    if req.moisture is not None:
+    if moisture is not None:
         try:
-            moisture = float(req.moisture)
+            moisture_value = float(moisture)
         except Exception as exc:
-            raise HTTPException(status_code=400, detail="Invalid moisture value") from exc
-        if moisture <= 70:
-            raise HTTPException(
-                status_code=400,
-                detail="Moisture must be > 70 to trigger call",
-            )
+            return jsonify(error="Invalid moisture value"), 400
+        if moisture_value <= 70:
+            return jsonify(error="Moisture must be > 70 to trigger call"), 400
 
     now = time.time()
     last_call = recent_calls.get(to, 0.0)
     if now - last_call < COOLDOWN_S:
-        raise HTTPException(
-            status_code=429,
-            detail="Cooldown active for this target number",
-        )
+        return jsonify(error="Cooldown active for this target number"), 429
 
     if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and Client):
         if ALLOW_DRY_RUN:
             fake_sid = f"DRYRUN-{int(now * 1000)}"
             recent_calls[to] = now
-            return {
-                "success": True,
-                "callSid": fake_sid,
-                "message": "Dry-run simulated call",
-            }
-        raise HTTPException(
-            status_code=500,
-            detail="Twilio credentials not configured on server",
-        )
+            return jsonify(success=True, callSid=fake_sid, message="Dry-run simulated call")
+        return jsonify(error="Twilio credentials not configured on server"), 500
 
     client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
     twiml = f'<Response><Say voice="alice">{escape_for_twiml(message)}</Say></Response>'
@@ -118,14 +103,14 @@ def alert_call(req: AlertRequest):
             twiml=twiml,
         )
         recent_calls[to] = now
-        return {"success": True, "callSid": call.sid}
+        return jsonify(success=True, callSid=call.sid)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return jsonify(error=str(exc)), 500
 
 
-# Vercel can import the ASGI app directly.
+# Vercel can import the Flask app directly.
 handler = app
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "3002")))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "3002")), debug=True)

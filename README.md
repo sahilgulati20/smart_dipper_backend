@@ -1,6 +1,6 @@
 # Smart Dipper Python Backend
 
-This backend exposes a FastAPI app for health checks and Twilio calling. It supports a dry-run mode for local development when Twilio credentials are missing.
+This backend exposes a Flask app for health checks and Twilio calling. It supports a dry-run mode for local development when Twilio credentials are missing.
 
 ## Endpoints
 
@@ -23,7 +23,7 @@ pip install -r requirements.txt
 3. Run the API locally from the `api` folder:
 
 ```bash
-uvicorn index:app --host 0.0.0.0 --port 3002 --reload
+python index.py
 ```
 
 4. Test the health check:
@@ -46,4 +46,3 @@ curl -X POST http://localhost:3002/api/alert-call -H "Content-Type: application/
 - `ALERT_PHONE_NUMBER`
 - `ALLOW_DRY_RUN`
 - `COOLDOWN_S`
-"# smart_dipper_backend" 
